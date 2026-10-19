@@ -8,7 +8,7 @@ eksik veya boşsa modül import edilirken ConfigError fırlatılır.
 import os
 from pathlib import Path
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 from dotenv import load_dotenv
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -45,4 +45,6 @@ _settings = _load_settings()
 MODEL: str = _settings["ANTHROPIC_MODEL"]
 TEMP_MODEL: str = _settings["ANTHROPIC_TEMP_MODEL"]
 
+# Script'ler senkron istemciyi, FastAPI uygulaması asenkron istemciyi kullanır.
 client = Anthropic(api_key=_settings["ANTHROPIC_API_KEY"])
+async_client = AsyncAnthropic(api_key=_settings["ANTHROPIC_API_KEY"])
