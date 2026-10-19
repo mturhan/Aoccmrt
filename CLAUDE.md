@@ -1,0 +1,75 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Proje özeti
+
+AOCC Copilot: havalimanı Operasyon Kontrol Merkezi (AOCC) personeli için Claude tabanlı asistan. Hedef, canlı operasyon verisini (uçuş, gate/stand, kaynak, olay) tool'larla sorgulayıp özetlemek; şu an canlı veri bağlantısı yok. Python 3.13 + FastAPI backend, Anthropic Python SDK 1.x'e doğrudan API key ile bağlanır. React frontend ve PostgreSQL (mock veri) planlandı, henüz yok.
+
+- `backend/llm.py`: tek config ve istemci noktası. `.env`'yi import anında yükler; `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_TEMP_MODEL` eksik/boşsa Türkçe `ConfigError` fırlatır, yani bu modülü import eden her şey geçerli bir `.env` ister. Ortamdaki değişkenler `.env`'nin önüne geçer. `client` (senkron) script'ler, `async_client` FastAPI içindir.
+- `backend/main.py`: `GET /health`, `POST /chat` (`{"message": "..."}`; boş/boşluk mesaj 422). `/chat` yanıtı SSE akışıdır: `delta` (metin parçası) olayları, ardından `done` (`stop_reason`) ya da `error`.
+- `backend/prompts.py`: `SYSTEM_INSTRUCTIONS`, `/chat`'e `system` olarak verilir — canlı veri yokken bunu söyle, sayı/durum uydurma, hesabı servise bırak, kısa ve Türkçe yanıt ver.
+- `scripts/`: tek seferlik deneyler (durumsuzluk, aritmetik, sıcaklık). Doğrudan çalıştırılabilmeleri için repo kökünü `sys.path`'e eklerler.
+- `docs/sorumluluk-zinciri.md`: deney bulgularından hangi işin LLM'e, hangisinin servise ait olduğuna dair GÖZLEM/KARAR tablosu.
+- `docs/superpowers/specs/`: ilk teknoloji kararları. uv/`pyproject.toml` ve Python 3.12 kararları geçerliliğini yitirdi; ortam pip + `.venv` + Python 3.13.
+
+## Komutlar
+
+Windows PowerShell 5.1, tüm komutlar repo kökünden.
+
+```powershell
+# Kurulum
+py -3.13 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# API (port 8000, /docs ile denenebilir)
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload
+
+# Endpoint denemesi (ayrı pencerede)
+curl.exe -s http://127.0.0.1:8000/health
+curl.exe -N -X POST http://127.0.0.1:8000/chat -H "Content-Type: application/json" --data-binary "@istek1.json"
+
+# Deney script'leri
+$env:PYTHONIOENCODING="utf-8"; .\.venv\Scripts\python.exe scripts\first_call.py
+.\.venv\Scripts\python.exe scripts\temperature.py --model <model-adı>
+
+# Lint / format
+.\.venv\Scripts\python.exe -m ruff check backend scripts; .\.venv\Scripts\python.exe -m ruff format backend scripts
+
+# Uçtan uca sunucu testi: arka planda başlat, /health'i yokla, try/finally ile kapat
+$p = Start-Process .\.venv\Scripts\python.exe -ArgumentList "-m uvicorn backend.main:app --port 8765" -PassThru -WindowStyle Hidden
+try { <for döngüsüyle /health yokla; istekleri at> } finally { Stop-Process -Id $p.Id -Force }
+
+# Testler (henüz test yok; tek test örneği)
+.\.venv\Scripts\python.exe -m pytest tests\test_x.py::test_adi
+```
+
+## Kurallar
+
+- Tanımlayıcılar İngilizce; yorumlar, docstring'ler, kullanıcıya dönen mesajlar ve birim test isimleri Türkçe.
+- Model adı her zaman `backend.llm.MODEL` / `TEMP_MODEL`'den alınır.
+- Yanıttan metin alırken yalnızca `block.type == "text"` blokları birleştirilir; içerikte thinking blokları da olabilir.
+- `max_tokens` varsayılanı 16000; thinking de çıktı token'ı harcar.
+- Sıcaklık gerekiyorsa `extra_body={"temperature": ...}` ile gönderilir (SDK 1.x parametreyi kaldırdı). Güncel modeller (ör. `claude-sonnet-5-5`) varsayılan dışı sıcaklığı 400 ile reddeder.
+- Model hatasında istemciye yalnızca genel bir Türkçe mesaj gider; ayrıntı `logger.exception` ile sunucu loguna yazılır.
+- SSE ve JSON çıktısı `ensure_ascii=False` ile üretilir; Türkçe karakterler UTF-8 kalır.
+- Config hata yolunu test etmek için boş değeri Python'dan ver: `python -c "import os; os.environ['ANTHROPIC_MODEL']=''; import backend.llm"`. PowerShell'de `$env:X=""` değişkeni siler ve `.env` değeri devreye girer.
+- Model hatası denemesi: sunucuyu `$env:ANTHROPIC_MODEL="olmayan-model"` ile ayrı bir portta başlat; ortamdaki değer `.env`'yi ezer.
+- Geçmişe asistan turu eklerken `response.content`'i olduğu gibi geri gönder; yalnızca metni değil, thinking bloklarını da.
+- `sys.path.insert` sonrasındaki importlara `# noqa: E402` ekleme; E402 kapalı, ruff RUF100 hatası verir.
+- Bağımlılıklar `requirements.txt`'te `==` ile sabitlenir.
+- Yeni deney bulguları `docs/sorumluluk-zinciri.md` tablosuna işlenir.
+- Komutlar `&&` değil `;` ile zincirlenir.
+- Konsola Türkçe yazan script'ler `PYTHONIOENCODING=utf-8` ile çalıştırılır.
+- Commit mesajları kilometre taşı önekiyle yazılır, ör. `M1.1 - 04 durumsuzluk deneyi`.
+
+## Yasaklar
+
+- Model adını koda gömme.
+- `messages.create(temperature=...)` kullanma; SDK 1.x'te `TypeError` verir.
+- Hata ayrıntısını (exception metni, API yanıtı, request id) istemciye gönderme.
+- `.env` ve `*istek*.json` deneme dosyalarını commit etme.
+- PowerShell'de `curl` takma adını kullanma; `curl.exe` kullan.
+- Türkçe çıktı beklenen script'leri `python -I` ile çalıştırma; `PYTHONIOENCODING`'i yok sayar.
+- Modelin operasyonel sayı/durum uydurmasına veya hesap sonucu üretmesine izin veren prompt değişikliği yapma.
+- `.venv` Python süreçlerini toptan durdurma; VS Code eklenti sunucuları da `.venv`'den çalışır. Yalnızca başlattığın PID'i ya da `CommandLine`'ında `uvicorn` geçenleri durdur.
+- Gerçek API çağrısı yapan script'leri döngüde ya da gereksiz yere tekrar çalıştırma; her çalıştırma ücretlidir.
