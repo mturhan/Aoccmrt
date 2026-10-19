@@ -1,0 +1,21 @@
+# Claude / LLM
+anthropic==1.15.0
+
+# Web API
+fastapi==0.146.0
+uvicorn[standard]==0.54.0
+
+# Config
+pydantic-settings==2.16.0
+python-dotenv==1.2.4
+
+# Veritabanı (PostgreSQL)
+sqlalchemy==2.1.5
+asyncpg==0.32.0
+alembic==1.20.0
+
+# Test / kalite
+httpx==0.28.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.17.1
